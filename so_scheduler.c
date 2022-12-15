@@ -211,9 +211,9 @@ int so_signal(unsigned int io) {
 
 void preempt ( AT* current, AT* new ) {
 
-    next_thread ( REMOVE );
-    printf ( "added %p\n", (*current) );
     add ( &scheduler->vec[(*current)->prio], (*current) );
+    (*new) = next_thread ( REMOVE );
+    printf ( "added %p\n", (*current) );
     (*current) = (*new);
     printf ( "posted %p\n", (*current) );
     sem_post ( &(*current)->run );
@@ -222,10 +222,10 @@ void preempt ( AT* current, AT* new ) {
 void so_exec() {
     printf ( "exec xD\n" );
     if ( !running ) return;
+    running->time--;
     AT old = running;
     AT next = next_thread ( KEEP );
     printf ( "next thread is: %p\n", next );
-    running->time--;
     printf ( "%d -> running time\n", running->time );
     if ( running->time == 0 ) {
         running->time = scheduler->tq;
