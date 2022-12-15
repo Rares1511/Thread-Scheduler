@@ -1,0 +1,144 @@
+#include "so_scheduler.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <semaphore.h>
+
+typedef void *( *start ) ( void* );
+
+typedef struct thread {
+    so_handler *func;
+    unsigned int priority;
+    tid_t id;
+    struct thread *next;
+} Thread, *AT;
+
+typedef struct scheduler {
+    unsigned int tq, io;
+} Scheduler, *AS;
+
+AT ready = NULL, waiting = NULL, running = NULL;
+AS scheduler;
+int *avaliable;
+int initiated = 0, first_fork = 0;
+sem_t mutex;
+
+void add ( AT *list, AT element ) {
+    if ( (*list) == NULL ) {
+        (*list) = element;
+        return;
+    }
+    AT parc = (*list), prev = NULL;
+    while ( parc != NULL && parc->priority >= element->priority )
+        parc = parc->next;
+    if ( prev == NULL ) {
+        element->next = (*list);
+        (*list) = element;
+        return;
+    }
+    prev->next = element;
+    element->next = parc;
+}
+
+void* start_thread ( void* arg ) {
+    printf ( "started\n" );
+    AT thread = (AT) arg;
+    if ( running != thread ) {
+        printf ( "waiting\n" );
+        sem_wait ( &mutex );
+    }
+    printf ( "I am running with %p\n", thread );
+    printf ( "%p, %d\n", thread->func, thread->priority );
+    thread->func ( thread->priority );
+    printf ( "semaphore poseted\n" );
+    sem_post ( &mutex );
+    if ( ready != NULL ) {
+        AT useless = running;
+        running = ready;
+        free ( useless );
+        ready = ready->next;
+    }
+    
+    printf ( "ended thread\n" );
+}
+
+int so_init(unsigned int time_quantum, unsigned int io) {
+
+    if ( initiated == 1 ) return -1;
+    printf ( "%d, %d\n", time_quantum, io );
+    if ( io > SO_MAX_NUM_EVENTS ) return -1;
+    scheduler = malloc ( sizeof ( Scheduler ) );
+    if ( !scheduler ) return -1;
+    sem_init ( &mutex, 0, 1 );
+    scheduler->tq = time_quantum;
+    scheduler->io = io;
+    avaliable = calloc ( SO_MAX_NUM_EVENTS + 1, sizeof ( int ) );
+    for ( int i = 0; i <= SO_MAX_NUM_EVENTS; i++ )
+        avaliable[i] = 0;
+    initiated = 1;
+    return 0;
+}
+
+tid_t so_fork(so_handler *func, unsigned int priority) {
+    printf ( "so fork\n" );
+    printf ( "%p, %d\n", func, priority );
+    if ( priority > SO_MAX_PRIO || initiated == 0 ) return INVALID_TID;
+    if ( func == NULL ) return INVALID_TID; 
+    AT thread = malloc ( sizeof ( Thread ) );
+    if ( !thread ) return INVALID_TID;
+    thread->func = func;
+    thread->priority = priority;
+    pthread_create ( &(thread->id), NULL, start_thread, thread );
+    if ( first_fork == 0 ) {
+        running = thread;
+        first_fork = 1;
+        pthread_join ( thread->id, NULL );
+        return thread->id;   
+    }
+    if ( running->priority < thread->priority ) {
+        add ( &ready, running );
+        running = thread;
+    }
+    else
+        add ( &ready, thread );
+    printf ( "%p, %p\n", thread, running );
+    // if ( running == thread ) {
+    //     printf ( "i got here pls\n" );
+    //     func ( priority );
+    // }
+    printf ( "%p\n", running );
+    return thread->id;
+}
+
+int so_wait(unsigned int io) {
+    printf ( "so wait\n" );
+    return 0;
+}
+
+int so_signal(unsigned int io) {
+    printf ( "so signal\n" );
+    return 0;
+}
+
+void so_exec() {
+    printf ( "so exec\n" );
+}
+
+void so_end ( ) {
+    if ( initiated == 0 ) return;
+    printf ( "got end\n" );
+    free ( scheduler );
+    free ( avaliable );
+    free ( running );
+    while ( ready != NULL ) {
+        AT useless = ready;
+        ready = ready->next;
+        free ( useless );
+    }
+    while ( waiting != NULL ) {
+        AT useless = waiting;
+        waiting = waiting->next;
+        free ( useless );
+    }
+    initiated = 0;
+    printf ( "%p\n", scheduler );
+}
